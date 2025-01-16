@@ -1,0 +1,25 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python Debugger: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": [
+                "-evaluate",
+                "-gpu_id", "4",
+                "-dataset_name", "Fan_NOSSDAV_17",
+                "-model_name", "pos_only",
+                "-init_window", "5",
+                "-m_window", "5",
+                "-h_window", "13",
+                "-provided_videos"
+            ]
+        }
+    ]
+}
