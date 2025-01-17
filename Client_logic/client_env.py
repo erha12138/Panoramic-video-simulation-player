@@ -343,7 +343,7 @@ if __name__ == "__main__":
     video_name = "coaster"
     user_name = "user21"
 
-    Network_Trace = read_txt_to_list_3("../Network_Trace/test_20")
+    Network_Trace = read_txt_to_list_3("../Network_Trace/test/test_20")
     with open("../Video_Trace/Fan_NOSSDAV_17/coaster.json", 'r', encoding='utf-8') as file:
     # 直接使用json.load函数从文件对象中读取内容并转换为字典
         Video_Trace = json.load(file)  # 读出的key值是str，要转换
