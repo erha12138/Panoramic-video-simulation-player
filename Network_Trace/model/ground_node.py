@@ -1,5 +1,4 @@
 from typing import Optional
-from scapy.all import Packet
 
 
 class Vector3D:
@@ -14,6 +13,7 @@ class GroundNode:
         self.id = id
         self.m_position = position
         self.bandwidth = bandwidth
+        self.visibility = 0
 
 
     def SetPosition(self, position: Vector3D):

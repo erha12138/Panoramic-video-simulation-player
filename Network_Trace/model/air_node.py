@@ -30,13 +30,13 @@ class AerialNode:
         self.m_type = aerial_type
         self.bandwidth =  bandwidth # 可以随机设置的，一路上链路的带宽最低值就是实际带宽
         if self.m_type == 0:
-            self.m_velocity = Vector(random.random(0.03,0.08), random.random(0.03,0.08), 0.0) # 乱飞即可，初始化一个
+            self.m_velocity = Vector(random.uniform(0.03,0.08), random.uniform(0.03,0.08), 0.0) # 乱飞即可，初始化一个
             self.visibility = 0.5 # km
         elif self.m_type == 1:
-            self.m_velocity = Vector(random.random(10,20), random.random(10,20), 0.0) # 乱飞即可，初始化一个
+            self.m_velocity = Vector(random.uniform(10,20), random.uniform(10,20), 0.0) # 乱飞即可，初始化一个
             self.visibility = 500 # km
         else:
-            self.m_velocity = Vector(random.random(5,10), random.random(5,10), 0.0) # 乱飞即可，初始化一个
+            self.m_velocity = Vector(random.uniform(5,10), random.uniform(5,10), 0.0) # 乱飞即可，初始化一个
             self.visibility = 500
 
 

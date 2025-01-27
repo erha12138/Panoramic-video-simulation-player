@@ -29,7 +29,7 @@ class SpaceNode:
         self.node_type = "Space" # 
         self.id = id
         self.m_position = position
-        self.m_velocity = Vector3D(random.random(20,60), random.random(20,60), 0.0) # 
+        self.m_velocity = Vector3D(random.uniform(20,60), random.uniform(20,60), 0.0) # 
         self.bandwidth = bandwidth
         self.visibility = 1000 # km
 
