@@ -367,7 +367,10 @@ if __name__ == "__main__":
     step_count = 0
     data_list = []
     while True:
-        step_count += 1
+        step_count += 1 # base on step to decide Graph and Adjacent matrix
+
+        
+
         chunk_delay, broadcasting_delay, real_time, req_chunk_id, watching_chunk_id, bandwidth_ptr, buffer_size, rebuffer_time, end_of_video = env.step()
         
         # print("chunk delay:", chunk_delay, "real time:", real_time, "req chunk id:", req_chunk_id, "watching chunk id:", watching_chunk_id, "bandwidth ptr:", bandwidth_ptr, "buffer size:", buffer_size, "rebuffer time:", rebuffer_time)
