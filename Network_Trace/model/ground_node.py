@@ -14,7 +14,7 @@ class GroundNode:
         self.m_position = position
         self.bandwidth = bandwidth
         self.visibility = 0
-
+        self.m_velocity = Vector3D(0.0, 0.0, 0.0)
 
     def SetPosition(self, position: Vector3D):
         self.m_position = position

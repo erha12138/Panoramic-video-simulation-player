@@ -1,6 +1,6 @@
-from ground_node import GroundNode, Vector3D
-from air_node import AerialNode
-from space_node import SpaceNode
+from .ground_node import GroundNode, Vector3D
+from .air_node import AerialNode
+from .space_node import SpaceNode
 import random
 import sys
 # propagation delay parameters
@@ -156,6 +156,7 @@ class End_Device():
         self.node_type = "End"
         self.bandwidth = random.uniform(5,12)
         self.visibility = 0
+        self.m_velocity = Vector3D(0.0, 0.0, 0.0)
 
 # 四颗卫星，卫星直连地面基站更慢一点，经过无人机中继会更快一些
 def initialize_graph(): 
@@ -245,7 +246,7 @@ def dijkstra(adj_matrix, start, end):
 if __name__ == "__main__":
     node_list, ground_node_num, air_node_num, space_node_num = initialize_graph()
     # print(node_list, len(node_list))
-    adjMatrix = GraphAdjMatrix(node_list,ground_node_num, air_node_num, space_node_num)
+    adjMatrix = GraphAdjMatrix(node_list, ground_node_num, air_node_num, space_node_num)
     start = 0
     end = len(adjMatrix.propagation_matrix) - 1
     path, a = dijkstra(adjMatrix.propagation_matrix, start, end)
