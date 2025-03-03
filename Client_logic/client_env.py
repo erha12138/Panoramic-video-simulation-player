@@ -349,12 +349,16 @@ if __name__ == "__main__":
         Video_Trace = json.load(file)  # 读出的key值是str，要转换
     FoV_trace = read_FoV_Trace(dataset_name, video_name, user_name)
     
+    model = create_pos_only_model(self.M_WINDOW, self.H_WINDOW)
+    model.load_weights("../head-motion-prediction/" + self.data_set + "/" + self.FoV_model + "/Models_EncDec_eulerian_init_5_in_5_out_13_end_13" + '/weights.hdf5')
+
     env = Environment(Network_trace=Network_Trace,
                       video_trace=Video_Trace,
                       FoV_trace=FoV_trace,
                       M_WINDOW=5,
                       H_WINDOW=13,
                       FoV_model="pos_only",
+                      model=model,
                       use_true_saliency=False,
                       random_seed=RANDOM_SEED)
     
