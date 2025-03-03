@@ -9,13 +9,23 @@ import pandas as pd
 import random
 import json
 from position_only_baseline import create_pos_only_model
+import tensorflow as tf
+import a3c
 import csv
 import datetime
-
+import abr_algorithms
 
 RANDOM_SEED = 1
 LINK_RTT = 80  # millisec
-
+M_WINDOW=5
+H_WINDOW=13
+S_INFO = 6  # bit_rate, buffer_size, next_chunk_size, bandwidth_measurement(throughput and time), chunk_til_video_end
+S_LEN = 8  # take how many frames in the past
+A_DIM = 6
+ACTOR_LR_RATE = 0.0001
+CRITIC_LR_RATE=0.0001
+script_dir = os.path.dirname(os.path.abspath(__file__))
+NN_MODEL = os.path.join(script_dir,'./models/pretrain_linear_reward.ckpt')
 
 # from head-motion-prediction/Utils.py
 def cartesian_to_eulerian(x, y, z):
@@ -63,6 +73,23 @@ def get_around_tile_id(focus_tile_id):
             around_tile_id.append(new_x + new_y * 10)
     return around_tile_id
 
+class A3Cbatch:
+    def __init__(self):
+        action_vec = np.zeros(A_DIM)
+
+        self.s_batch = [np.zeros((S_INFO, S_LEN))]
+        self.a_batch = [action_vec]
+        self.r_batch = []
+        self.entropy_record = []
+
+    def get_s_batch(self):
+        return self.s_batch
+    def add(self,s,a,r,e):
+        self.s_batch.append(s)
+        self.a_batch.append(a)
+        self.r_batch.append(r)
+        self.entropy_record.append(e)
+
 class Environment:  # 是给定了1、网络轨迹 2、视频轨迹 3、视野轨迹 的固定环境
     def __init__(
         self,
@@ -72,10 +99,11 @@ class Environment:  # 是给定了1、网络轨迹 2、视频轨迹 3、视野�
         buffer_len=30,
         M_WINDOW=5,
         H_WINDOW=13,
-        data_set = "Fan_NOSSDAV_17",
-        FoV_model="pos_only",
+        model=None,
         use_true_saliency=False,
         random_seed=RANDOM_SEED,
+        actor=None,
+        a3cbatch=A3Cbatch(),
     ):
         
         self.network_trace = Network_trace
@@ -89,11 +117,14 @@ class Environment:  # 是给定了1、网络轨迹 2、视频轨迹 3、视野�
         self.rebuffer_time = 0
         self.data_set = data_set
         self.buffer_len = buffer_len # 
-        
+        self.model=model
+        self.actor=actor
         self.CHUNK_LEN = 1.0
         self.M_WINDOW = M_WINDOW
         self.H_WINDOW = H_WINDOW
-
+        self.a3cbatch=a3cbatch
+        #记录上一次的运行环境
+        self.last_step_info = dict()
         # randomize the start point of the trace
         # note: trace file starts with time 0 
         
@@ -189,8 +220,6 @@ class Environment:  # 是给定了1、网络轨迹 2、视频轨迹 3、视野�
                     self.watching_chunk_id = int(self.real_time)
                     self.buffer_size = self.buffer_len
 
-
-
                 if self.req_chunk_id >= len(self.video_trace): # 如果已经请求超过最后一个chunk了
                     end_of_video = True # 请求视频结束了，需要重新初始化
                 break      
@@ -202,72 +231,25 @@ class Environment:  # 是给定了1、网络轨迹 2、视频轨迹 3、视野�
     
     def FoV_predict(self): # 要读实际的FoV轨迹
         model_name = self.FoV_model
-        if model_name == 'TRACK':
-            if self.use_true_saliency:
-                model = create_TRACK_model(self.M_WINDOW, self.H_WINDOW, NUM_TILES_HEIGHT_TRUE_SAL, NUM_TILES_WIDTH_TRUE_SAL)
-            else:
-                model = create_TRACK_model(self.M_WINDOW, self.H_WINDOW, NUM_TILES_HEIGHT, NUM_TILES_WIDTH)
-        elif model_name == 'TRACK_AblatSal':
-            if self.use_true_saliency:
-                model = create_TRACK_AblatSal_model(self.M_WINDOW, self.H_WINDOW, NUM_TILES_HEIGHT_TRUE_SAL, NUM_TILES_WIDTH_TRUE_SAL)
-            else:
-                model = create_TRACK_AblatSal_model(self.M_WINDOW, self.H_WINDOW, NUM_TILES_HEIGHT, NUM_TILES_WIDTH)
-        elif model_name == 'TRACK_AblatFuse':
-            if self.use_true_saliency:
-                model = create_TRACK_AblatFuse_model(self.M_WINDOW, self.H_WINDOW, NUM_TILES_HEIGHT_TRUE_SAL, NUM_TILES_WIDTH_TRUE_SAL)
-            else:
-                model = create_TRACK_AblatFuse_model(self.M_WINDOW, self.H_WINDOW, NUM_TILES_HEIGHT, NUM_TILES_WIDTH)
-        elif model_name == 'CVPR18':
-            if self.use_true_saliency:
-                model = create_CVPR18_model(self.M_WINDOW, self.H_WINDOW, NUM_TILES_HEIGHT_TRUE_SAL, NUM_TILES_WIDTH_TRUE_SAL)
-            else:
-                model = create_CVPR18_model(self.M_WINDOW, self.H_WINDOW, NUM_TILES_HEIGHT, NUM_TILES_WIDTH)
-        elif model_name == 'MM18':
-            mm18_models = []
-            for _self.H_WINDOW in range(self.H_WINDOW):
-                mm18_models.append(MM18_model.create_MM18_model())
-        elif model_name == 'pos_only':
-            model = create_pos_only_model(self.M_WINDOW, self.H_WINDOW)
-        elif model_name == 'pos_only_3d_loss':
-            obj = Pos_Only_Class(self.H_WINDOW)
-            model = obj.get_model()
-        elif model_name == 'CVPR18_orig':
-            if self.use_true_saliency:
-                model = create_CVPR18_orig_Model(self.M_WINDOW, NUM_TILES_HEIGHT_TRUE_SAL, NUM_TILES_WIDTH_TRUE_SAL)
-            else:
-                model = create_CVPR18_orig_Model(self.M_WINDOW, NUM_TILES_HEIGHT, NUM_TILES_WIDTH)
-        
-        # if model_name not in ['no_motion', 'most_salient_point', 'true_saliency', 'content_based_saliency', 'MM18']:
-        #     model.summary()
-        # elif model_name == 'MM18':
-        #     mm18_models[0].summary()
-
-        if self.watching_chunk_id < self.M_WINDOW: # 如果还没有足够的数据
-            return None # 返回空
-        else:
-            if model_name not in ['pos_only', 'no_motion', 'true_saliency', 'content_based_saliency', 'pos_only_3d_loss', 'MM18']:
-                encoder_sal_inputs_for_sample = np.array([np.expand_dims(all_saliencies[video][x_i - M_WINDOW + 1:x_i + 1], axis=-1)])
-                decoder_sal_inputs_for_sample = np.array([np.expand_dims(all_saliencies[video][x_i + 1:x_i + H_WINDOW + 1], axis=-1)])
-            if model_name in ['true_saliency', 'content_based_saliency']:
-                decoder_true_sal_inputs_for_sample = most_salient_points_per_video[video][x_i + 1:x_i + H_WINDOW + 1]
-            if model_name == 'CVPR18_orig':
-                # ToDo when is CVPR18_orig the input is the concatenation of encoder_pos_inputs and decoder_pos_inputs
-                encoder_pos_inputs_for_sample = np.array([all_traces[video][user][x_i - M_WINDOW + 1:x_i + 1]])
-            elif model_name == 'MM18':
-                encoder_sal_inputs_for_sample = np.array([np.concatenate((all_saliencies[video][x_i-M_WINDOW+1:x_i+1], all_headmaps[video][user][x_i-M_WINDOW+1:x_i+1]), axis=1)])
-            else:
-                encoder_pos_inputs_for_sample = np.array([self.FoV_trace[self.watching_chunk_id - self.M_WINDOW:self.watching_chunk_id]])
-                decoder_pos_inputs_for_sample = np.array([self.FoV_trace[self.watching_chunk_id:self.watching_chunk_id + 1]])
-        # 读入模型权重
-        if model_name not in ['no_motion', 'most_salient_point', 'true_saliency', 'content_based_saliency', 'MM18']:
-            model.load_weights("../head-motion-prediction/" + self.data_set + "/" + self.FoV_model + "/Models_EncDec_eulerian_init_5_in_5_out_13_end_13" + '/weights.hdf5')
         # 执行视野预测
+        encoder_pos_inputs_for_sample = np.array([self.FoV_trace[self.watching_chunk_id - self.M_WINDOW:self.watching_chunk_id]])
+        decoder_pos_inputs_for_sample = np.array([self.FoV_trace[self.watching_chunk_id:self.watching_chunk_id + 1]])
         if model_name == 'pos_only': 
-            model_pred = model.predict([transform_batches_cartesian_to_normalized_eulerian(encoder_pos_inputs_for_sample), transform_batches_cartesian_to_normalized_eulerian(decoder_pos_inputs_for_sample)])[0]
+            model_pred = self.model.predict([transform_batches_cartesian_to_normalized_eulerian(encoder_pos_inputs_for_sample), transform_batches_cartesian_to_normalized_eulerian(decoder_pos_inputs_for_sample)])[0]
             model_prediction = transform_normalized_eulerian_to_cartesian(model_pred)
 
         print(model_prediction)     # model_pred 是欧拉的状态；model_prediction是笛卡尔的状态
         return model_pred, model_prediction # 返回视野预测结果，存在一定的预测窗口，由具体请求哪个chunk由self.req_chunk_id决定
+    
+    def get_next_video_chunk_size(self):
+        req_trace=self.video_trace[str(self.req_chunk_id)]
+        tile=req_trace[str(50)]
+
+        next_vido_chunk_size=[]
+        for i in range(A_DIM):
+            next_vido_chunk_size.append(tile[str(i)])
+        
+        return next_vido_chunk_size
 
     def ABR(self, FoV_predict_eulerian): # chunk_id 是要请求的下一个chunk的id 
         # 给出实际ABR算法，计算出tile_quality = 【tile1：1，tile2：1,....】
@@ -280,17 +262,29 @@ class Environment:  # 是给定了1、网络轨迹 2、视频轨迹 3、视野�
         focus_tile_id = get_tile_id(FoV_predict_eulerian[FoV_duration - 1]) # 用于ABR的实际视野
         around_tile_id = get_around_tile_id(focus_tile_id)
 
+
+        abr_name="bb"
+        if abr_name=="a3c":
+            next_video_chunk_sizes=self.get_next_video_chunk_size()
+            video_chunk_remain=len(self.video_trace)-self.req_chunk_id
+            # self.last_step_info["next_video_chunk_sizes"] = next_video_chunk_sizes
+            ground,focuse,state,action,reward,entroy=abr_algorithms.a3c_base(self.last_step_info,next_video_chunk_sizes,video_chunk_remain,actor,self.a3cbatch.get_s_batch())
+            self.a3cbatch.add(state,action,reward,entroy)
+        elif abr_name=="bb":
+            ground,focuse=abr_algorithms.buffer_base(self.last_step_info)
+        else:
+            ground,focuse=abr_algorithms.normal()
         # 开始执行ABR
         # 暂时简单的ABR算法，focus tile 选最高质量，around tile 选次高质量；之后再修改
         tile_level = {}
         
         for tile_id in range(100):
             tile_level[tile_id] = self.video_trace[str(self.req_chunk_id)][str(tile_id)][str(0)]
-# 在最低级的tile之后再赋值高级的，这样高级会覆盖低级
+
+
         for tile_id in around_tile_id:
-            tile_level[tile_id] = self.video_trace[str(self.req_chunk_id)][str(tile_id)][str(5)]
-# 在around之后再赋值focus，这样focus会覆盖around
-        tile_level[focus_tile_id] = self.video_trace[str(self.req_chunk_id)][str(focus_tile_id)][str(7)]
+            tile_level[tile_id] = self.video_trace[str(self.req_chunk_id)][str(tile_id)][ground]
+        tile_level[focus_tile_id] = self.video_trace[str(self.req_chunk_id)][str(focus_tile_id)][focuse]
 
         video_chunk_size = sum(tile_level.values()) # 计算video_chunk_size
         return tile_level, video_chunk_size # 返回每个tile的质量，是一个字典或列表；并计算video_chunk_size
@@ -308,6 +302,8 @@ class Environment:  # 是给定了1、网络轨迹 2、视频轨迹 3、视野�
         if end_of_video:
             self.reset() # step数量在外部控制
         
+
+
         return (chunk_delay,
                 broadcasting_delay,
                 self.real_time,
@@ -316,6 +312,7 @@ class Environment:  # 是给定了1、网络轨迹 2、视频轨迹 3、视野�
                 self.bandwidth_ptr,
                 self.buffer_size,
                 self.rebuffer_time,
+                self.a3cbatch,
                 end_of_video)
     
 
@@ -336,6 +333,9 @@ def read_FoV_Trace(dataset_name, video, user):
 
 
 if __name__ == "__main__":
+    
+    
+
     current_time = datetime.datetime.now()
     formatted_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
     
@@ -349,20 +349,8 @@ if __name__ == "__main__":
         Video_Trace = json.load(file)  # 读出的key值是str，要转换
     FoV_trace = read_FoV_Trace(dataset_name, video_name, user_name)
     
-    model = create_pos_only_model(self.M_WINDOW, self.H_WINDOW)
-    model.load_weights("../head-motion-prediction/" + self.data_set + "/" + self.FoV_model + "/Models_EncDec_eulerian_init_5_in_5_out_13_end_13" + '/weights.hdf5')
-
-    env = Environment(Network_trace=Network_Trace,
-                      video_trace=Video_Trace,
-                      FoV_trace=FoV_trace,
-                      M_WINDOW=5,
-                      H_WINDOW=13,
-                      FoV_model="pos_only",
-                      model=model,
-                      use_true_saliency=False,
-                      random_seed=RANDOM_SEED)
     
-    output_file_path = "../output/"+ dataset_name+"_"+video_name+"_"+user_name+"_"+formatted_time +"_client_test.csv"
+    output_file_path = "../output_dev/"+ dataset_name+"_"+video_name+"_"+user_name+"_"+formatted_time +"_client_test.csv"
     headers = ["chunk delay", "broadcasting delay", "real time", "req chunk id", "watching chunk id", "bandwidth ptr", "buffer size", "rebuffer time", "end of video"]
     with open(output_file_path, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
@@ -370,18 +358,76 @@ if __name__ == "__main__":
 
     step_count = 0
     data_list = []
-    while True:
-        step_count += 1 # base on step to decide Graph and Adjacent matrix
 
-        
+    
+    with tf.compat.v1.Session() as sess:
 
-        chunk_delay, broadcasting_delay, real_time, req_chunk_id, watching_chunk_id, bandwidth_ptr, buffer_size, rebuffer_time, end_of_video = env.step()
-        
-        # print("chunk delay:", chunk_delay, "real time:", real_time, "req chunk id:", req_chunk_id, "watching chunk id:", watching_chunk_id, "bandwidth ptr:", bandwidth_ptr, "buffer size:", buffer_size, "rebuffer time:", rebuffer_time)
-        data = [chunk_delay, broadcasting_delay, real_time, req_chunk_id, watching_chunk_id, bandwidth_ptr, buffer_size, rebuffer_time, end_of_video]
-        with open(output_file_path, 'a', newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(data)
+        actor = a3c.ActorNetwork(sess,
+                                state_dim=[S_INFO, S_LEN], action_dim=A_DIM,
+                                learning_rate=ACTOR_LR_RATE)
+        critic = a3c.CriticNetwork(sess,
+                                state_dim=[S_INFO, S_LEN],
+                                learning_rate=CRITIC_LR_RATE)
 
-        if step_count > 300:
-            break
+        sess.run(tf.compat.v1.global_variables_initializer())
+        saver = tf.compat.v1.train.Saver()  # save neural net parameters
+
+        #加载actor模型和参数
+        nn_model = NN_MODEL
+        if nn_model is not None:  # nn_model is the path to file
+            saver.restore(sess, nn_model)
+            print("Model restored.")
+            # 提前加载fov模型
+        data_set = "Fan_NOSSDAV_17"
+        FoV_model="pos_only"
+        fovmodel = create_pos_only_model(M_WINDOW, H_WINDOW)
+        fovmodel.load_weights("../head-motion-prediction/" + data_set + "/" + FoV_model + "/Models_EncDec_eulerian_init_5_in_5_out_13_end_13" + '/weights.hdf5')
+
+        env = Environment(Network_trace=Network_Trace,
+                        video_trace=Video_Trace,
+                        FoV_trace=FoV_trace,
+                        M_WINDOW=5,
+                        H_WINDOW=13,
+                        actor=actor,
+                        model=fovmodel,
+                        use_true_saliency=False,
+                        random_seed=RANDOM_SEED)
+
+        while True:
+            step_count += 1 # base on step to decide Graph and Adjacent matrix
+
+            (chunk_delay, 
+            broadcasting_delay, 
+            real_time, 
+            req_chunk_id, 
+            watching_chunk_id, 
+            bandwidth_ptr,
+            buffer_size,
+            rebuffer_time, 
+            a3cbatch ,
+            end_of_video) = env.step()
+            
+            # print("chunk delay:", chunk_delay, "real time:", real_time, "req chunk id:", req_chunk_id, "watching chunk id:", watching_chunk_id, "bandwidth ptr:", bandwidth_ptr, "buffer size:", buffer_size, "rebuffer time:", rebuffer_time)
+            
+            step_info = {
+                "chunk delay": chunk_delay,
+                "broadcasting delay": broadcasting_delay,
+                "real time": real_time,
+                "req chunk id": req_chunk_id,
+                "watching chunk id": watching_chunk_id,
+                "bandwidth ptr": bandwidth_ptr,
+                "buffer size": buffer_size,
+                "rebuffer time": rebuffer_time,
+                "end of video": end_of_video,
+                "a3cbatch":a3cbatch
+            }
+
+            env.last_step_info=step_info
+
+            data = [chunk_delay, broadcasting_delay, real_time, req_chunk_id, watching_chunk_id, bandwidth_ptr, buffer_size, rebuffer_time, end_of_video]
+            with open(output_file_path, 'a', newline='') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(data)
+
+            if step_count > 300:
+                break
