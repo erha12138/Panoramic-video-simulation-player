@@ -1,16 +1,22 @@
 import os
 
 
-# COOKED_TRACE_FOLDER = './test/'
+COOKED_TRACE_FOLDER = './traces/'
 # COOKED_TRACE_FOLDER = './traces_belgium/'
-COOKED_TRACE_FOLDER = '../Network_Trace/'
+# COOKED_TRACE_FOLDER = '../Network_Trace/'
 # COOKED_TRACE_FOLDER = './traces_fcc/'
 # COOKED_TRACE_FOLDER = './unfair/user1/'
 # COOKED_TRACE_FOLDER = './fair/user11/'
 # COOKED_TRACE_FOLDER = './traces_oboe/'
 
+script_dir = os.path.dirname(os.path.abspath(__file__))
+# E:\abr-fov-dev\FoV-ABR-master\traces
 
-def load_trace(cooked_trace_folder=COOKED_TRACE_FOLDER):
+def load_trace(train):
+    if train:
+        cooked_trace_folder="E:\\abr-fov-dev\\FoV-ABR-master\\traces_in_range/"
+    else:
+        cooked_trace_folder="E:\\abr-fov-dev\\FoV-ABR-master\\traces_in_range/"
     cooked_files = os.listdir(cooked_trace_folder)
     all_cooked_time = []
     all_cooked_bw = []
